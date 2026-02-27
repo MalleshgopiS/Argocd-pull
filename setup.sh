@@ -14,23 +14,44 @@ echo "Creating namespace..."
 kubectl create namespace bleater --dry-run=client -o yaml | kubectl apply -f -
 
 ############################################
-# Grant ubuntu-user access to argocd namespace
-# (FIX: required so solution.sh can patch repo-server)
+# FIXED RBAC (explicit apiGroups)
 ############################################
 
-echo "Granting ubuntu-user RBAC access to argocd namespace..."
+echo "Granting ubuntu-user full access to argocd namespace..."
 
-kubectl create role ubuntu-user-argocd-admin \
-  --namespace argocd \
-  --verb='*' \
-  --resource='*' \
-  --dry-run=client -o yaml | kubectl apply -f -
+cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ubuntu-user-argocd-admin
+  namespace: argocd
+rules:
+- apiGroups: [""]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["argoproj.io"]
+  resources: ["*"]
+  verbs: ["*"]
+EOF
 
-kubectl create rolebinding ubuntu-user-argocd-admin-binding \
-  --namespace argocd \
-  --role=ubuntu-user-argocd-admin \
-  --serviceaccount=default:ubuntu-user \
-  --dry-run=client -o yaml | kubectl apply -f -
+cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ubuntu-user-argocd-admin-binding
+  namespace: argocd
+subjects:
+- kind: ServiceAccount
+  name: ubuntu-user
+  namespace: default
+roleRef:
+  kind: Role
+  name: ubuntu-user-argocd-admin
+  apiGroup: rbac.authorization.k8s.io
+EOF
 
 ############################################
 # Create broken WASM config (Git LFS pointer)
@@ -74,21 +95,21 @@ spec:
         app: bleater-frontend
     spec:
       containers:
-        - name: frontend
-          image: nginx:1.25
-          command: ["/bin/sh","-c"]
-          args:
-            - |
-              mkdir -p /usr/share/nginx/html;
-              cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
-              nginx -g 'daemon off;';
-          volumeMounts:
-            - name: wasm
-              mountPath: /wasm
-      volumes:
+      - name: frontend
+        image: nginx:1.25
+        command: ["/bin/sh","-c"]
+        args:
+        - |
+          mkdir -p /usr/share/nginx/html;
+          cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
+          nginx -g 'daemon off;';
+        volumeMounts:
         - name: wasm
-          configMap:
-            name: wasm-config
+          mountPath: /wasm
+      volumes:
+      - name: wasm
+        configMap:
+          name: wasm-config
 EOF
 
 ############################################
@@ -105,7 +126,7 @@ kubectl expose deployment bleater-frontend \
   --dry-run=client -o yaml | kubectl apply -f -
 
 ############################################
-# Save Deployment UID (ANTI-CHEAT CHECK)
+# Save Deployment UID
 ############################################
 
 echo "Saving Deployment UID..."
@@ -116,9 +137,5 @@ DEPLOY_UID=$(kubectl get deployment bleater-frontend \
 
 mkdir -p /grader
 echo "$DEPLOY_UID" > /grader/frontend-deploy-uid
-
-############################################
-# Done
-############################################
 
 echo "Setup complete."
