@@ -14,7 +14,7 @@ echo "Creating namespace..."
 kubectl create namespace bleater --dry-run=client -o yaml | kubectl apply -f -
 
 ############################################
-# FIXED RBAC (explicit apiGroups)
+# Grant ubuntu-user access to argocd namespace
 ############################################
 
 echo "Granting ubuntu-user full access to argocd namespace..."
@@ -54,7 +54,7 @@ roleRef:
 EOF
 
 ############################################
-# Create broken WASM config (Git LFS pointer)
+# Create Broken WASM (Git LFS Pointer)
 ############################################
 
 echo "Creating broken WASM ConfigMap..."
@@ -126,7 +126,34 @@ kubectl expose deployment bleater-frontend \
   --dry-run=client -o yaml | kubectl apply -f -
 
 ############################################
-# Save Deployment UID
+# Create ArgoCD Application
+############################################
+
+echo "Creating ArgoCD Application..."
+
+cat <<EOF | kubectl apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bleater-frontend
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://example.com/fake-repo.git
+    targetRevision: HEAD
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bleater
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+EOF
+
+############################################
+# Save Deployment UID (Anti-Cheat Check)
 ############################################
 
 echo "Saving Deployment UID..."
