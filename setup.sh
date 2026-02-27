@@ -1,20 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+###############################################################################
+# ArgoCD Git LFS Broken — Setup Script
+#
+# This setup intentionally creates a BROKEN state:
+#
+# 1. Frontend receives Git LFS POINTER instead of binary WASM
+# 2. ArgoCD repo-server has Git LFS DISABLED
+# 3. Deployment becomes unhealthy
+#
+# The grader later verifies:
+#   - WASM no longer contains LFS pointer
+#   - Deployment becomes Ready
+#   - Deployment UID is preserved
+#   - Repo-server has ARGOCD_GIT_LFS_ENABLED=true
+#   - Service endpoints exist
+#
+# IMPORTANT:
+# This script creates /grader/frontend-deploy-uid
+# used by grader anti-cheating validation.
+###############################################################################
+
 echo "========================================"
 echo "ArgoCD Git LFS Broken Task Setup"
 echo "========================================"
 
 ############################################
-# Create Namespace
+# Namespace
 ############################################
 
 echo "Creating namespace..."
-
 kubectl create namespace bleater --dry-run=client -o yaml | kubectl apply -f -
 
 ############################################
-# Grant ubuntu-user access to argocd namespace
+# RBAC — allow ubuntu user to patch ArgoCD
 ############################################
 
 echo "Granting ubuntu-user full access to argocd namespace..."
@@ -26,13 +46,7 @@ metadata:
   name: ubuntu-user-argocd-admin
   namespace: argocd
 rules:
-- apiGroups: [""]
-  resources: ["*"]
-  verbs: ["*"]
-- apiGroups: ["apps"]
-  resources: ["*"]
-  verbs: ["*"]
-- apiGroups: ["argoproj.io"]
+- apiGroups: ["", "apps", "argoproj.io"]
   resources: ["*"]
   verbs: ["*"]
 EOF
@@ -54,7 +68,7 @@ roleRef:
 EOF
 
 ############################################
-# Create Broken WASM (Git LFS Pointer)
+# Broken WASM (Git LFS pointer file)
 ############################################
 
 echo "Creating broken WASM ConfigMap..."
@@ -68,12 +82,12 @@ metadata:
 data:
   app.wasm: |
     version https://git-lfs.github.com/spec/v1
-    oid sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+    oid sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
     size 123456
 EOF
 
 ############################################
-# Deploy Broken Frontend
+# Broken Frontend Deployment
 ############################################
 
 echo "Deploying broken frontend..."
@@ -113,7 +127,7 @@ spec:
 EOF
 
 ############################################
-# Create Service
+# Service
 ############################################
 
 echo "Creating service..."
@@ -126,7 +140,7 @@ kubectl expose deployment bleater-frontend \
   --dry-run=client -o yaml | kubectl apply -f -
 
 ############################################
-# Create ArgoCD Application
+# ArgoCD Application (required for refresh)
 ############################################
 
 echo "Creating ArgoCD Application..."
@@ -153,10 +167,10 @@ spec:
 EOF
 
 ############################################
-# Save Deployment UID (Anti-Cheat Check)
+# Save Deployment UID (ANTI-CHEAT)
 ############################################
 
-echo "Saving Deployment UID..."
+echo "Saving Deployment UID for grader..."
 
 DEPLOY_UID=$(kubectl get deployment bleater-frontend \
   -n bleater \
@@ -165,4 +179,8 @@ DEPLOY_UID=$(kubectl get deployment bleater-frontend \
 mkdir -p /grader
 echo "$DEPLOY_UID" > /grader/frontend-deploy-uid
 
+echo "UID saved to /grader/frontend-deploy-uid"
+
+############################################
 echo "Setup complete."
+############################################
