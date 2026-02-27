@@ -1,20 +1,68 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-NS="bleater"
-DEPLOY="bleater-frontend"
+echo "========================================"
+echo "ArgoCD Git LFS Broken Task Setup"
+echo "========================================"
+
+############################################
+# Create Namespace
+############################################
 
 echo "Creating namespace..."
-kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create namespace bleater --dry-run=client -o yaml | kubectl apply -f -
+
+############################################
+# Grant ubuntu-user access to argocd namespace
+# (FIX: required so solution.sh can patch repo-server)
+############################################
+
+echo "Granting ubuntu-user RBAC access to argocd namespace..."
+
+kubectl create role ubuntu-user-argocd-admin \
+  --namespace argocd \
+  --verb='*' \
+  --resource='*' \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl create rolebinding ubuntu-user-argocd-admin-binding \
+  --namespace argocd \
+  --role=ubuntu-user-argocd-admin \
+  --serviceaccount=default:ubuntu-user \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+############################################
+# Create broken WASM config (Git LFS pointer)
+############################################
+
+echo "Creating broken WASM ConfigMap..."
+
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wasm-config
+  namespace: bleater
+data:
+  app.wasm: |
+    version https://git-lfs.github.com/spec/v1
+    oid sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+    size 123456
+EOF
+
+############################################
+# Deploy Broken Frontend
+############################################
 
 echo "Deploying broken frontend..."
 
-cat <<EOF | kubectl apply -f -
+cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${DEPLOY}
-  namespace: ${NS}
+  name: bleater-frontend
+  namespace: bleater
 spec:
   replicas: 1
   selector:
@@ -28,44 +76,49 @@ spec:
       containers:
         - name: frontend
           image: nginx:1.25
-          ports:
-            - containerPort: 80
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              mkdir -p /usr/share/nginx/html;
+              cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
+              nginx -g 'daemon off;';
           volumeMounts:
             - name: wasm
-              mountPath: /usr/share/nginx/html
+              mountPath: /wasm
       volumes:
         - name: wasm
           configMap:
             name: wasm-config
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: wasm-config
-  namespace: ${NS}
-data:
-  app.wasm: |
-    version https://git-lfs.github.com/spec/v1
-    oid sha256:1234567890abcdef
-    size 1234
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: bleater-frontend
-  namespace: ${NS}
-spec:
-  selector:
-    app: bleater-frontend
-  ports:
-    - port: 80
-      targetPort: 80
 EOF
+
+############################################
+# Create Service
+############################################
+
+echo "Creating service..."
+
+kubectl expose deployment bleater-frontend \
+  -n bleater \
+  --port=80 \
+  --target-port=80 \
+  --name=bleater-frontend \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+############################################
+# Save Deployment UID (ANTI-CHEAT CHECK)
+############################################
 
 echo "Saving Deployment UID..."
 
-DEPLOY_UID=$(kubectl get deployment ${DEPLOY} -n ${NS} -o jsonpath='{.metadata.uid}')
+DEPLOY_UID=$(kubectl get deployment bleater-frontend \
+  -n bleater \
+  -o jsonpath='{.metadata.uid}')
+
 mkdir -p /grader
 echo "$DEPLOY_UID" > /grader/frontend-deploy-uid
+
+############################################
+# Done
+############################################
 
 echo "Setup complete."
