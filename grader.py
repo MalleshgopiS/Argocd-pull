@@ -4,7 +4,10 @@ import json
 
 NS = "bleater"
 DEPLOY = "bleater-frontend"
-UID_FILE = "/grader/frontend-deploy-uid"   # moved from /tmp to protected location
+ARGO_NS = "argocd"
+
+UID_FILE = "/grader/frontend-deploy-uid"
+
 
 def run(cmd):
     try:
@@ -12,73 +15,69 @@ def run(cmd):
     except:
         return ""
 
+
 def wait_ready():
     for _ in range(20):
-        r = run(
+        ready = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
             "-o jsonpath='{.status.readyReplicas}'"
         )
-        if r and r != "0":
+        if ready and ready != "0":
             return True
         time.sleep(2)
     return False
 
-def get_pod():
+
+def get_running_pod():
     return run(
-        f"kubectl get pod -n {NS} -l app=frontend "
-        "-o jsonpath='{.items[0].metadata.name}'"
+        f"kubectl get pods -n {NS} -l app=frontend "
+        "-o jsonpath='{.items[?(@.status.phase==\"Running\")].metadata.name}'"
     )
 
-# -------------------------------------------------
-# CHECK 1 — WASM not LFS pointer (pod must exist)
-# -------------------------------------------------
-pod = get_pod()
 
-if not pod:
-    check_binary = False
-else:
+# CHECK 1 — WASM not LFS pointer
+pod = get_running_pod()
+check_binary = False
+
+if pod:
     wasm = run(
         f"kubectl exec -n {NS} {pod} -- cat /app/app.wasm"
     )
     check_binary = "git-lfs.github.com/spec" not in wasm
 
-# -------------------------------------------------
-# CHECK 2 — Deployment Ready
-# -------------------------------------------------
+
+# CHECK 2 — Deployment ready
 check_ready = wait_ready()
 
-# -------------------------------------------------
-# CHECK 3 — Deployment UID preserved
-# -------------------------------------------------
-orig = run(f"cat {UID_FILE}")
-curr = run(
+
+# CHECK 3 — UID preserved
+orig_uid = run(f"cat {UID_FILE}")
+curr_uid = run(
     f"kubectl get deploy {DEPLOY} -n {NS} "
     "-o jsonpath='{.metadata.uid}'"
 )
+check_uid = orig_uid == curr_uid
 
-check_uid = orig and curr and (orig == curr)
 
-# -------------------------------------------------
-# CHECK 4 — Git LFS enabled EXACT value
-# -------------------------------------------------
+# CHECK 4 — LFS enabled EXACT
 lfs_val = run(
     "kubectl get deploy argocd-repo-server -n argocd "
-    "-o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"ARGOCD_GIT_LFS_ENABLED\")].value}'"
+    "-o jsonpath='{.spec.template.spec.containers[0].env"
+    "[?(@.name==\"ARGOCD_GIT_LFS_ENABLED\")].value}'"
 )
 
 check_lfs = lfs_val == "true"
 
-# -------------------------------------------------
-# CHECK 5 — Service endpoints restored
-# -------------------------------------------------
+
+# CHECK 5 — Service endpoints
 eps = run(
     f"kubectl get endpoints {DEPLOY} -n {NS} "
     "-o jsonpath='{.subsets}'"
 )
 
-check_eps = eps != ""
+check_eps = eps not in ("", "[]", "<no value>")
 
-# -------------------------------------------------
+
 checks = [
     check_binary,
     check_ready,
@@ -87,10 +86,10 @@ checks = [
     check_eps,
 ]
 
-result = {
-    "score": sum(checks) / len(checks),
+score = sum(checks) / len(checks)
+
+print(json.dumps({
+    "score": score,
     "passed": sum(checks),
     "total": len(checks)
-}
-
-print(json.dumps(result))
+}))

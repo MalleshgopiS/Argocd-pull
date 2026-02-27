@@ -1,4 +1,4 @@
-name: argocd_lfs_broken
+id: argocd-lfs-broken
 title: ArgoCD Pulling Git LFS Pointer Files Instead of Binary Content
 
 category: CI/CD Pipeline
@@ -6,67 +6,44 @@ difficulty: medium
 horizon: short
 
 description: |
-  The Bleater platform frontend is deployed through ArgoCD using a GitOps workflow.
-  Recently, users began reporting that the frontend crashes immediately after deployment.
+  The Bleater frontend application is deployed using ArgoCD.
 
-  Investigation shows that ArgoCD is pulling Git LFS pointer files instead of the
-  actual binary artifacts from the repository. The frontend depends on a WebAssembly
-  file (`app.wasm`) that should be fetched through Git LFS.
+  Recently, deployments began failing after a repository migration
+  introduced Git Large File Storage (Git LFS) artifacts.
 
-  Because Git LFS is not enabled in the ArgoCD repo-server, the repository sync
-  retrieves only pointer metadata instead of real binary content. As a result:
+  The frontend depends on a WebAssembly binary (app.wasm).
+  Instead of downloading the real binary, ArgoCD is pulling
+  Git LFS pointer files.
 
-  - The frontend pod starts but serves invalid content
-  - The deployment never becomes Ready
-  - The service has no active endpoints
-  - Traffic routing fails
+  As a result:
+  - frontend pods crash during startup
+  - deployment never becomes Ready
+  - service endpoints remain empty
 
-  Your task is to diagnose and repair the ArgoCD configuration so that Git LFS
-  artifacts are properly fetched during repository synchronization.
+  Investigation shows Git LFS support is not enabled in the
+  ArgoCD repo-server component.
 
-  You must fix the system configuration — NOT manually modify application files.
-
-scenario: |
-  ArgoCD repo-server is missing Git LFS support, causing repository sync to
-  deploy pointer files instead of real binaries.
-
-  The WebAssembly artifact located at `/app/app.wasm` contains Git LFS pointer
-  metadata instead of binary data, preventing the application from becoming ready.
-
-  The deployment must recover automatically once ArgoCD is correctly configured.
+  You must repair the ArgoCD configuration so that real LFS
+  objects are fetched and the application recovers.
 
 objectives:
-  - Enable Git LFS support in the ArgoCD repo-server.
-  - Ensure ArgoCD re-syncs and retrieves real binary artifacts.
-  - Restore frontend deployment health.
-  - Preserve the existing Deployment resource.
+  - Enable Git LFS support in ArgoCD repo-server
+  - Trigger ArgoCD reconciliation
+  - Restore frontend deployment health
+  - Preserve existing Deployment resource
 
 constraints:
-  - You MUST patch existing Kubernetes resources.
-  - You MUST NOT delete or recreate the Deployment resource.
-  - Rolling updates or rollout restarts are allowed.
-  - You MUST NOT manually modify files inside running containers.
+  - DO NOT delete or recreate deployments
+  - DO NOT manually modify files inside running containers
+  - Only patch existing Kubernetes resources
 
 success_criteria:
-  - The WASM file no longer contains Git LFS pointer metadata.
-  - The frontend Deployment becomes Ready.
-  - The Deployment UID remains unchanged.
-  - Git LFS is enabled in the ArgoCD repo-server configuration.
-  - The frontend Service has active endpoints.
-
-environment:
-  namespace: bleater
+  - WASM file no longer contains Git LFS pointer metadata
+  - Frontend Deployment becomes Ready
+  - Deployment UID remains unchanged
+  - Git LFS is enabled in ArgoCD repo-server
+  - Frontend Service has active endpoints
 
 setup_script: setup.sh
-
 solution_script: solution.sh
-
-grader: grader.py
-
-tags:
-  - argocd
-  - gitops
-  - git-lfs
-  - kubernetes
-  - debugging
-  - ci-cd
+grader_script: grader.py

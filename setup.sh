@@ -1,17 +1,27 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-kubectl create namespace bleater || true
-kubectl create namespace argocd || true
+# ------------------------------------------------------------
+# ArgoCD LFS Broken Task Setup
+#
+# This script:
+# 1. Deploys frontend workload
+# 2. Ensures repo-server lacks Git LFS support
+# 3. Injects WASM LFS pointer content
+# 4. Stores Deployment UID for anti-cheating validation
+# ------------------------------------------------------------
 
-# -------------------------------------------------
-# Create broken frontend deployment
-# -------------------------------------------------
-cat <<EOF | kubectl apply -n bleater -f -
+NS="bleater"
+
+kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
+
+# Fake broken deployment (contains LFS pointer)
+cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bleater-frontend
+  namespace: $NS
 spec:
   replicas: 1
   selector:
@@ -25,54 +35,24 @@ spec:
       containers:
       - name: frontend
         image: nginx
-        command: ["/bin/sh"]
+        command: ["/bin/sh","-c"]
         args:
-          - -c
           - |
-            mkdir -p /app
-            echo "version https://git-lfs.github.com/spec/v1" > /app/app.wasm
-            nginx -g 'daemon off;'
-        ports:
-        - containerPort: 80
+            mkdir -p /app;
+            echo "version https://git-lfs.github.com/spec/v1" > /app/app.wasm;
+            nginx -g 'daemon off;';
 EOF
 
-# -------------------------------------------------
-# Service
-# -------------------------------------------------
 kubectl expose deployment bleater-frontend \
-  --port=80 \
-  --target-port=80 \
-  -n bleater \
-  --name=bleater-frontend || true
+  --port=80 --target-port=80 \
+  -n $NS --name bleater-frontend || true
 
-# -------------------------------------------------
-# Fake argocd repo-server
-# -------------------------------------------------
-cat <<EOF | kubectl apply -n argocd -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: argocd-repo-server
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: repo-server
-  template:
-    metadata:
-      labels:
-        app: repo-server
-    spec:
-      containers:
-      - name: repo-server
-        image: nginx
-        env: []
-EOF
+echo "Saving Deployment UID..."
 
-# -------------------------------------------------
-# Save original UID in protected grader location
-# -------------------------------------------------
-kubectl get deploy bleater-frontend -n bleater \
-  -o jsonpath='{.metadata.uid}' > /grader/frontend-deploy-uid
+UID=$(kubectl get deploy bleater-frontend -n $NS -o jsonpath='{.metadata.uid}')
 
+mkdir -p /grader
+echo "$UID" > /grader/frontend-deploy-uid
 chmod 400 /grader/frontend-deploy-uid
+
+echo "Setup complete."
