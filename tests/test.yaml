@@ -1,0 +1,3 @@
+tests:
+  - name: argocd-lfs-validation
+    type: grader

@@ -1,0 +1,39 @@
+name: ArgoCD_Git_LFS_Debugging
+
+title: ArgoCD Pulls Git LFS Pointer Files Instead of Binary Content
+
+category: CI/CD Pipeline
+difficulty: medium
+horizon: short
+environment: kubernetes
+
+description: |
+  The Bleater frontend application is failing after an ArgoCD sync.
+
+  The application depends on a WebAssembly artifact (app.wasm)
+  stored in Git using Git LFS.
+
+  ArgoCD successfully synchronizes the repository, but instead of
+  downloading the binary artifact, it deploys a Git LFS pointer file.
+
+  Because of this:
+  - Frontend pods crash
+  - Deployment never becomes Ready
+  - Service endpoints remain empty
+
+  Your task is to diagnose and fix the ArgoCD configuration
+  so Git LFS objects are properly fetched.
+
+  You MUST patch existing resources.
+  You MUST NOT delete or recreate the frontend deployment.
+
+success_criteria:
+  - WASM file no longer contains Git LFS pointer metadata
+  - Deployment becomes Ready
+  - Deployment UID preserved
+  - Git LFS enabled in repo-server
+  - Service endpoints restored
+
+setup_script: setup.sh
+solution_script: solution.sh
+grader: grader.py
