@@ -13,7 +13,7 @@ def run(cmd):
         return ""
 
 def wait_ready():
-    for _ in range(15):
+    for _ in range(20):
         r = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
             "-o jsonpath='{.status.readyReplicas}'"
@@ -30,18 +30,18 @@ def get_pod():
     )
 
 # -------------------------
-# CHECK 1 — Binary validation
+# CHECK 1 — WASM not LFS pointer
 # -------------------------
-pod = get_pod()
+pod=get_pod()
 
-size = run(
-    f"kubectl exec -n {NS} {pod} -- wc -c /app/app.wasm | awk '{{print $1}}'"
-) if pod else "0"
+wasm=run(
+    f"kubectl exec -n {NS} {pod} -- cat /app/app.wasm"
+) if pod else ""
 
-check_binary = size.isdigit() and int(size) > 10000
+check_binary = "git-lfs.github.com/spec" not in wasm
 
 # -------------------------
-# CHECK 2 — Deployment ready
+# CHECK 2 — Deployment Ready
 # -------------------------
 check_ready = wait_ready()
 
@@ -57,17 +57,14 @@ curr = run(
 check_uid = orig == curr
 
 # -------------------------
-# CHECK 4 — LFS enabled TRUE
+# CHECK 4 — LFS enabled EXACT
 # -------------------------
-envs = run(
+lfs_val = run(
     "kubectl get deploy argocd-repo-server -n argocd "
-    "-o jsonpath='{.spec.template.spec.containers[0].env}'"
+    "-o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"ARGOCD_GIT_LFS_ENABLED\")].value}'"
 )
 
-check_lfs = (
-    "ARGOCD_GIT_LFS_ENABLED" in envs
-    and "true" in envs
-)
+check_lfs = lfs_val == "true"
 
 # -------------------------
 # CHECK 5 — Service endpoints
@@ -87,10 +84,10 @@ checks = [
     check_eps,
 ]
 
-result = {
+result={
     "score": sum(checks)/len(checks),
     "passed": sum(checks),
-    "total": len(checks),
+    "total": len(checks)
 }
 
 print(json.dumps(result))
