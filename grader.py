@@ -1,5 +1,6 @@
 import subprocess
 import time
+import json
 
 NS="bleater"
 DEPLOY="bleater-frontend"
@@ -12,38 +13,84 @@ def run(cmd):
         return ""
 
 def wait_ready():
-    for _ in range(10):
-        r = run(f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.status.readyReplicas}}'")
+    for _ in range(15):
+        r = run(
+            f"kubectl get deploy {DEPLOY} -n {NS} "
+            "-o jsonpath='{.status.readyReplicas}'"
+        )
         if r and r != "0":
             return True
-        time.sleep(3)
+        time.sleep(2)
     return False
 
 def get_pod():
-    return run(f"kubectl get pod -n {NS} -l app=frontend -o jsonpath='{{.items[0].metadata.name}}'")
+    return run(
+        f"kubectl get pod -n {NS} -l app=frontend "
+        "-o jsonpath='{.items[0].metadata.name}'"
+    )
 
-# 1 WASM not pointer
+# -------------------------
+# CHECK 1 — Binary validation
+# -------------------------
 pod = get_pod()
-wasm_content = run(f"kubectl exec -n {NS} {pod} -- cat /app/app.wasm") if pod else ""
-check1 = "git-lfs.github.com" not in wasm_content
 
-# 2 Ready
-check2 = wait_ready()
+size = run(
+    f"kubectl exec -n {NS} {pod} -- wc -c /app/app.wasm | awk '{{print $1}}'"
+) if pod else "0"
 
-# 3 UID preserved
+check_binary = size.isdigit() and int(size) > 10000
+
+# -------------------------
+# CHECK 2 — Deployment ready
+# -------------------------
+check_ready = wait_ready()
+
+# -------------------------
+# CHECK 3 — UID preserved
+# -------------------------
 orig = run(f"cat {UID_FILE}")
-curr = run(f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.metadata.uid}}'")
-check3 = orig == curr
+curr = run(
+    f"kubectl get deploy {DEPLOY} -n {NS} "
+    "-o jsonpath='{.metadata.uid}'"
+)
 
-# 4 LFS enabled
-envs = run("kubectl get deploy argocd-repo-server -n argocd -o jsonpath='{.spec.template.spec.containers[0].env}'")
-check4 = "ARGOCD_GIT_LFS_ENABLED" in envs
+check_uid = orig == curr
 
-# 5 Service endpoints
-eps = run(f"kubectl get endpoints {DEPLOY} -n {NS} -o jsonpath='{{.subsets}}'")
-check5 = eps != ""
+# -------------------------
+# CHECK 4 — LFS enabled TRUE
+# -------------------------
+envs = run(
+    "kubectl get deploy argocd-repo-server -n argocd "
+    "-o jsonpath='{.spec.template.spec.containers[0].env}'"
+)
 
-checks = [check1,check2,check3,check4,check5]
-score = sum(checks)/len(checks)
+check_lfs = (
+    "ARGOCD_GIT_LFS_ENABLED" in envs
+    and "true" in envs
+)
 
-print({"score":score,"passed":sum(checks),"total":len(checks)})
+# -------------------------
+# CHECK 5 — Service endpoints
+# -------------------------
+eps = run(
+    f"kubectl get endpoints {DEPLOY} -n {NS} "
+    "-o jsonpath='{.subsets}'"
+)
+
+check_eps = eps != ""
+
+checks = [
+    check_binary,
+    check_ready,
+    check_uid,
+    check_lfs,
+    check_eps,
+]
+
+result = {
+    "score": sum(checks)/len(checks),
+    "passed": sum(checks),
+    "total": len(checks),
+}
+
+print(json.dumps(result))

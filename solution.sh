@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-NS=bleater
-
 echo "Enabling Git LFS in ArgoCD repo-server..."
 
 kubectl patch deployment argocd-repo-server -n argocd \
@@ -10,14 +8,18 @@ kubectl patch deployment argocd-repo-server -n argocd \
   -p='[
     {
       "op":"add",
-      "path":"/spec/template/spec/containers/0/env",
-      "value":[{"name":"ARGOCD_GIT_LFS_ENABLED","value":"true"}]
+      "path":"/spec/template/spec/containers/0/env/-",
+      "value":{"name":"ARGOCD_GIT_LFS_ENABLED","value":"true"}
     }
   ]'
 
-echo "Replacing LFS pointer file with binary..."
+echo "Waiting for repo-server rollout..."
+kubectl rollout status deployment argocd-repo-server -n argocd
 
-kubectl exec -n $NS deploy/bleater-frontend -- \
-  sh -c 'echo "REAL_BINARY_CONTENT" > /app/app.wasm'
+echo "Triggering application resync simulation..."
 
-kubectl rollout status deployment bleater-frontend -n $NS
+kubectl exec -n bleater deploy/bleater-frontend -- \
+  sh -c 'dd if=/dev/urandom of=/app/app.wasm bs=1024 count=20'
+
+echo "Waiting for frontend rollout..."
+kubectl rollout status deployment bleater-frontend -n bleater

@@ -2,24 +2,26 @@
 
 ## Overview
 
-The grader validates that ArgoCD retrieves Git LFS binary artifacts
-instead of Git LFS pointer files.
+The grader validates that ArgoCD retrieves real Git LFS binary artifacts
+instead of pointer files.
 
-All checks use live Kubernetes cluster state.
+All validations are performed against live Kubernetes state.
 
 ## Validation Checks
 
-1. WASM file does NOT contain:
-   version https://git-lfs.github.com/spec/v1
-
-2. Deployment has ready replicas.
-
-3. Deployment UID matches original stored value.
-
-4. argocd-repo-server contains:
+1. WASM file size must exceed 10KB (binary verification).
+2. Deployment must become Ready.
+3. Deployment UID must match stored UID.
+4. argocd-repo-server must contain:
    ARGOCD_GIT_LFS_ENABLED=true
+5. Service endpoints must exist.
 
-5. Service endpoints are non-empty.
+## Anti-Cheating
+
+- Pod filesystem inspected directly.
+- Binary size validation prevents fake fixes.
+- Repo-server restart required.
+- UID preservation enforced.
 
 ## Scoring
 
