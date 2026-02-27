@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-NS=argocd
-APP_NS=bleater
-
 echo "Enabling Git LFS in ArgoCD repo-server..."
 
-kubectl patch deployment argocd-repo-server -n $NS \
+kubectl patch deployment argocd-repo-server -n argocd \
   --type='json' \
   -p='[
     {
@@ -16,14 +13,10 @@ kubectl patch deployment argocd-repo-server -n $NS \
     }
   ]'
 
-echo "Waiting for repo-server restart..."
-kubectl rollout status deployment argocd-repo-server -n $NS
+kubectl rollout status deployment argocd-repo-server -n argocd
 
-echo "Triggering GitOps reconciliation (simulated ArgoCD sync)..."
+echo "Triggering reconciliation..."
+kubectl rollout restart deployment bleater-frontend -n bleater
+kubectl rollout status deployment bleater-frontend -n bleater
 
-# restart workload so repo-server pulls repo again
-kubectl rollout restart deployment bleater-frontend -n $APP_NS
-
-kubectl rollout status deployment bleater-frontend -n $APP_NS
-
-echo "LFS fix applied successfully."
+echo "Fix applied."

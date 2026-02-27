@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
-NAMESPACE=bleater
-DEPLOYMENT=bleater-frontend
+kubectl create namespace bleater || true
+kubectl create namespace argocd || true
 
-kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-
-# Broken frontend deployment with LFS pointer file
-kubectl apply -n $NAMESPACE -f - <<EOF
+# -------------------------------------------------
+# Create broken frontend deployment
+# -------------------------------------------------
+cat <<EOF | kubectl apply -n bleater -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: $DEPLOYMENT
+  name: bleater-frontend
 spec:
   replicas: 1
   selector:
@@ -24,34 +24,31 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: busybox
-        command: ["sh","-c"]
+        image: nginx
+        command: ["/bin/sh"]
         args:
+          - -c
           - |
-            mkdir -p /app;
-            echo "version https://git-lfs.github.com/spec/v1" > /app/app.wasm;
-            sleep 3600;
-        readinessProbe:
-          exec:
-            command: ["cat","/app/app.wasm"]
-          initialDelaySeconds: 3
-          periodSeconds: 5
+            mkdir -p /app
+            echo "version https://git-lfs.github.com/spec/v1" > /app/app.wasm
+            nginx -g 'daemon off;'
+        ports:
+        - containerPort: 80
 EOF
 
-kubectl expose deployment $DEPLOYMENT \
-  -n $NAMESPACE \
+# -------------------------------------------------
+# Service
+# -------------------------------------------------
+kubectl expose deployment bleater-frontend \
   --port=80 \
   --target-port=80 \
-  --name=$DEPLOYMENT
+  -n bleater \
+  --name=bleater-frontend || true
 
-# Save original UID
-kubectl get deploy $DEPLOYMENT -n $NAMESPACE \
-  -o jsonpath='{.metadata.uid}' > /tmp/frontend-deploy-uid
-
-# Simulated ArgoCD repo-server without LFS enabled
-kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl apply -n argocd -f - <<EOF
+# -------------------------------------------------
+# Fake argocd repo-server
+# -------------------------------------------------
+cat <<EOF | kubectl apply -n argocd -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -68,9 +65,14 @@ spec:
     spec:
       containers:
       - name: repo-server
-        image: busybox
-        command: ["sleep","3600"]
+        image: nginx
+        env: []
 EOF
 
-echo "Broken LFS environment initialized."
-sleep infinity
+# -------------------------------------------------
+# Save original UID in protected grader location
+# -------------------------------------------------
+kubectl get deploy bleater-frontend -n bleater \
+  -o jsonpath='{.metadata.uid}' > /grader/frontend-deploy-uid
+
+chmod 400 /grader/frontend-deploy-uid
