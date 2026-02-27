@@ -1,27 +1,19 @@
-#!/bin/bash
-set -e
-
-# ------------------------------------------------------------
-# ArgoCD LFS Broken Task Setup
-#
-# This script:
-# 1. Deploys frontend workload
-# 2. Ensures repo-server lacks Git LFS support
-# 3. Injects WASM LFS pointer content
-# 4. Stores Deployment UID for anti-cheating validation
-# ------------------------------------------------------------
+#!/usr/bin/env bash
+set -euo pipefail
 
 NS="bleater"
+DEPLOY="bleater-frontend"
 
+echo "Creating namespace..."
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
-# Fake broken deployment (contains LFS pointer)
-cat <<EOF | kubectl apply -f -
+echo "Deploying broken frontend..."
+
+kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bleater-frontend
-  namespace: $NS
+  name: $DEPLOY
 spec:
   replicas: 1
   selector:
@@ -34,25 +26,37 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: nginx
+        image: nginx:alpine
         command: ["/bin/sh","-c"]
         args:
           - |
-            mkdir -p /app;
-            echo "version https://git-lfs.github.com/spec/v1" > /app/app.wasm;
-            nginx -g 'daemon off;';
+            mkdir -p /app
+            # simulate Git LFS pointer instead of binary
+            cat <<LFS > /app/app.wasm
+version https://git-lfs.github.com/spec/v1
+oid sha256:deadbeef
+size 12345
+LFS
+            nginx -g 'daemon off;'
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      volumes:
+      - name: app
+        emptyDir: {}
 EOF
 
-kubectl expose deployment bleater-frontend \
-  --port=80 --target-port=80 \
-  -n $NS --name bleater-frontend || true
+kubectl expose deployment $DEPLOY -n $NS --port 80 --target-port 80 || true
+
+echo "Waiting for deployment..."
+kubectl rollout status deployment/$DEPLOY -n $NS --timeout=120s
 
 echo "Saving Deployment UID..."
 
-UID=$(kubectl get deploy bleater-frontend -n $NS -o jsonpath='{.metadata.uid}')
-
 mkdir -p /grader
-echo "$UID" > /grader/frontend-deploy-uid
-chmod 400 /grader/frontend-deploy-uid
+
+DEPLOY_UID=$(kubectl get deploy $DEPLOY -n $NS -o jsonpath='{.metadata.uid}')
+
+echo "$DEPLOY_UID" > /grader/frontend-deploy-uid
 
 echo "Setup complete."
