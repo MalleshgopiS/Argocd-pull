@@ -1,49 +1,37 @@
-id: argocd-lfs-broken
-title: ArgoCD Pulling Git LFS Pointer Files Instead of Binary Content
-
-category: CI/CD Pipeline
-difficulty: medium
-horizon: short
-
-description: |
-  The Bleater frontend application is deployed using ArgoCD.
-
-  Recently, deployments began failing after a repository migration
-  introduced Git Large File Storage (Git LFS) artifacts.
-
-  The frontend depends on a WebAssembly binary (app.wasm).
-  Instead of downloading the real binary, ArgoCD is pulling
-  Git LFS pointer files.
-
-  As a result:
-  - frontend pods crash during startup
-  - deployment never becomes Ready
-  - service endpoints remain empty
-
-  Investigation shows Git LFS support is not enabled in the
-  ArgoCD repo-server component.
-
-  You must repair the ArgoCD configuration so that real LFS
-  objects are fetched and the application recovers.
-
-objectives:
-  - Enable Git LFS support in ArgoCD repo-server
-  - Trigger ArgoCD reconciliation
-  - Restore frontend deployment health
-  - Preserve existing Deployment resource
-
-constraints:
-  - DO NOT delete or recreate deployments
-  - DO NOT manually modify files inside running containers
-  - Only patch existing Kubernetes resources
-
-success_criteria:
-  - WASM file no longer contains Git LFS pointer metadata
-  - Frontend Deployment becomes Ready
-  - Deployment UID remains unchanged
-  - Git LFS is enabled in ArgoCD repo-server
-  - Frontend Service has active endpoints
-
-setup_script: setup.sh
-solution_script: solution.sh
-grader_script: grader.py
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bleater-frontend
+  namespace: bleater
+  labels:
+    app: bleater-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bleater-frontend
+  template:
+    metadata:
+      labels:
+        app: bleater-frontend
+    spec:
+      containers:
+        - name: frontend
+          # 🔥 FIX: Use Harbor (offline Nebula registry)
+          image: harbor.devops.local/library/nginx:1.25
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              mkdir -p /usr/share/nginx/html;
+              cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
+              nginx -g 'daemon off;';
+          volumeMounts:
+            - name: wasm
+              mountPath: /wasm
+      volumes:
+        - name: wasm
+          configMap:
+            name: wasm-config
