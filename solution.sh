@@ -1,46 +1,45 @@
-echo "Waiting for ArgoCD sync..."
+#!/usr/bin/env bash
+set -euo pipefail
 
-SYNC_TIMEOUT=300
-SYNC_START=$(date +%s)
+ARGO_NS="argocd"
+APP_NS="bleater"
+APP_NAME="bleater-frontend"
 
-while true; do
-  STATUS=$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
-    -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "")
+echo "Enabling Git LFS in ArgoCD repo-server..."
 
-  if [[ "$STATUS" == "Synced" ]]; then
-    echo "Application synced."
-    break
-  fi
+# Idempotent env injection (safe if already set)
+kubectl set env deployment/argocd-repo-server \
+  -n ${ARGO_NS} \
+  ARGOCD_GIT_LFS_ENABLED=true || true
 
-  NOW=$(date +%s)
-  if (( NOW - SYNC_START > SYNC_TIMEOUT )); then
-    echo "ERROR: ArgoCD sync timeout"
-    exit 1
-  fi
+echo "Waiting for repo-server rollout..."
+kubectl rollout status deployment/argocd-repo-server \
+  -n ${ARGO_NS} \
+  --timeout=300s
 
-  sleep 3
-done
+echo "Triggering ArgoCD refresh..."
+kubectl annotate application ${APP_NAME} \
+  -n ${ARGO_NS} \
+  argocd.argoproj.io/refresh=hard \
+  --overwrite || true
 
 
-echo "Waiting for ArgoCD health..."
+# ---- Optimized Convergence Wait ----
 
-HEALTH_TIMEOUT=300
-HEALTH_START=$(date +%s)
+echo "Waiting for frontend deployment rollout..."
 
-while true; do
-  HEALTH=$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
-    -o jsonpath='{.status.health.status}' 2>/dev/null || echo "")
+kubectl rollout status deployment/${APP_NAME} \
+  -n ${APP_NS} \
+  --timeout=300s
 
-  if [[ "$HEALTH" == "Healthy" ]]; then
-    echo "Application healthy."
-    break
-  fi
 
-  NOW=$(date +%s)
-  if (( NOW - HEALTH_START > HEALTH_TIMEOUT )); then
-    echo "ERROR: ArgoCD health timeout"
-    exit 1
-  fi
+echo "Verifying pods are Ready..."
 
-  sleep 3
-done
+kubectl wait \
+  --for=condition=Ready pods \
+  -l app=${APP_NAME} \
+  -n ${APP_NS} \
+  --timeout=180s
+
+
+echo "Fix complete."
