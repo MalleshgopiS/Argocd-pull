@@ -1,38 +1,38 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: bleater-frontend
-  namespace: bleater
-  labels:
-    app: frontend
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: frontend
-  template:
-    metadata:
-      labels:
-        app: frontend
-    spec:
-      containers:
-        - name: frontend
-          image: harbor.devops.local/library/nginx:1.25
-          imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -c
-          args:
-            - |
-              mkdir -p /app;
-              mkdir -p /usr/share/nginx/html;
-              cp /wasm/app.wasm /app/app.wasm;
-              cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
-              nginx -g 'daemon off;';
-          volumeMounts:
-            - name: wasm
-              mountPath: /wasm
-      volumes:
-        - name: wasm
-          configMap:
-            name: wasm-config
+name: ArgoCD Git LFS Broken
+
+difficulty: medium
+
+description: |
+  The ArgoCD repo-server is not properly handling Git LFS files.
+
+  The bleater-frontend application loads a WebAssembly (WASM)
+  binary stored using Git LFS. Because Git LFS support is disabled
+  in ArgoCD, the deployment fetches a Git LFS pointer file instead
+  of the real WASM binary.
+
+  Your task is to fix the cluster configuration so that:
+
+    1. Git LFS is enabled in the ArgoCD repo-server.
+    2. The bleater-frontend Deployment becomes Ready.
+    3. The WASM file inside the running pod is the real binary
+       (not a Git LFS pointer).
+    4. The Deployment UID is preserved
+       (do NOT delete and recreate it).
+    5. Service endpoints become healthy.
+
+  Constraints:
+
+    - Modify only Kubernetes/ArgoCD configuration.
+    - Do NOT delete and recreate deployments.
+    - Do NOT modify grader files.
+    - Solution must be idempotent.
+
+author: Apex
+
+tags:
+  - kubernetes
+  - argocd
+  - git-lfs
+  - devops
+
+estimated_time_minutes: 15

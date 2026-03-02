@@ -1,186 +1,102 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-###############################################################################
-# ArgoCD Git LFS Broken — Setup Script
-#
-# This setup intentionally creates a BROKEN state:
-#
-# 1. Frontend receives Git LFS POINTER instead of binary WASM
-# 2. ArgoCD repo-server has Git LFS DISABLED
-# 3. Deployment becomes unhealthy
-#
-# The grader later verifies:
-#   - WASM no longer contains LFS pointer
-#   - Deployment becomes Ready
-#   - Deployment UID is preserved
-#   - Repo-server has ARGOCD_GIT_LFS_ENABLED=true
-#   - Service endpoints exist
-#
-# IMPORTANT:
-# This script creates /grader/frontend-deploy-uid
-# used by grader anti-cheating validation.
-###############################################################################
-
 echo "========================================"
 echo "ArgoCD Git LFS Broken Task Setup"
 echo "========================================"
 
-############################################
-# Namespace
-############################################
+NS="bleater"
 
 echo "Creating namespace..."
-kubectl create namespace bleater --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace ${NS} || true
 
-############################################
-# RBAC — allow ubuntu user to patch ArgoCD
-############################################
+echo "Grant ubuntu-user access to argocd..."
+kubectl create role ubuntu-user-argocd-admin \
+  --verb="*" \
+  --resource="*" \
+  -n argocd || true
 
-echo "Granting ubuntu-user full access to argocd namespace..."
+kubectl create rolebinding ubuntu-user-argocd-admin-binding \
+  --role=ubuntu-user-argocd-admin \
+  --user=ubuntu-user \
+  -n argocd || true
 
-cat <<EOF | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: ubuntu-user-argocd-admin
-  namespace: argocd
-rules:
-- apiGroups: ["", "apps", "argoproj.io"]
-  resources: ["*"]
-  verbs: ["*"]
-EOF
-
-cat <<EOF | kubectl apply -f -
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ubuntu-user-argocd-admin-binding
-  namespace: argocd
-subjects:
-- kind: ServiceAccount
-  name: ubuntu-user
-  namespace: default
-roleRef:
-  kind: Role
-  name: ubuntu-user-argocd-admin
-  apiGroup: rbac.authorization.k8s.io
-EOF
-
-############################################
-# Broken WASM (Git LFS pointer file)
-############################################
 
 echo "Creating broken WASM ConfigMap..."
-
-cat <<'EOF' | kubectl apply -f -
+kubectl apply -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: wasm-config
-  namespace: bleater
+  namespace: ${NS}
 data:
   app.wasm: |
     version https://git-lfs.github.com/spec/v1
-    oid sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
-    size 123456
+    oid sha256:broken
+    size 123
 EOF
 
-############################################
-# Broken Frontend Deployment
-############################################
 
 echo "Deploying broken frontend..."
-
-cat <<'EOF' | kubectl apply -f -
+kubectl apply -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: bleater-frontend
-  namespace: bleater
+  namespace: ${NS}
+  labels:
+    app: frontend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: bleater-frontend
+      app: frontend
   template:
     metadata:
       labels:
-        app: bleater-frontend
+        app: frontend
     spec:
       containers:
-      - name: frontend
-        image: nginx:1.25
-        command: ["/bin/sh","-c"]
-        args:
-        - |
-          mkdir -p /usr/share/nginx/html;
-          cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
-          nginx -g 'daemon off;';
-        volumeMounts:
-        - name: wasm
-          mountPath: /wasm
+        - name: frontend
+          image: harbor.devops.local/library/nginx:1.25
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              mkdir -p /app;
+              mkdir -p /usr/share/nginx/html;
+              cp /wasm/app.wasm /app/app.wasm;
+              cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
+              nginx -g 'daemon off;';
+          volumeMounts:
+            - name: wasm
+              mountPath: /wasm
       volumes:
-      - name: wasm
-        configMap:
-          name: wasm-config
+        - name: wasm
+          configMap:
+            name: wasm-config
 EOF
 
-############################################
-# Service
-############################################
 
 echo "Creating service..."
-
-kubectl expose deployment bleater-frontend \
-  -n bleater \
-  --port=80 \
-  --target-port=80 \
-  --name=bleater-frontend \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-############################################
-# ArgoCD Application (required for refresh)
-############################################
-
-echo "Creating ArgoCD Application..."
-
-cat <<EOF | kubectl apply -f -
-apiVersion: argoproj.io/v1alpha1
-kind: Application
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
 metadata:
   name: bleater-frontend
-  namespace: argocd
+  namespace: ${NS}
 spec:
-  project: default
-  source:
-    repoURL: https://example.com/fake-repo.git
-    targetRevision: HEAD
-    path: .
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: bleater
-  syncPolicy:
-    automated:
-      prune: false
-      selfHeal: true
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
 EOF
 
-############################################
-# Save Deployment UID (ANTI-CHEAT)
-############################################
 
 echo "Saving Deployment UID for grader..."
+kubectl get deployment bleater-frontend \
+  -n ${NS} \
+  -o jsonpath='{.metadata.uid}' > /grader/frontend-deploy-uid
 
-DEPLOY_UID=$(kubectl get deployment bleater-frontend \
-  -n bleater \
-  -o jsonpath='{.metadata.uid}')
-
-mkdir -p /grader
-echo "$DEPLOY_UID" > /grader/frontend-deploy-uid
-
-echo "UID saved to /grader/frontend-deploy-uid"
-
-############################################
 echo "Setup complete."
-############################################
