@@ -4,20 +4,19 @@ metadata:
   name: bleater-frontend
   namespace: bleater
   labels:
-    app: bleater-frontend
+    app: frontend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: bleater-frontend
+      app: frontend
   template:
     metadata:
       labels:
-        app: bleater-frontend
+        app: frontend
     spec:
       containers:
         - name: frontend
-          # 🔥 FIX: Use Harbor (offline Nebula registry)
           image: harbor.devops.local/library/nginx:1.25
           imagePullPolicy: IfNotPresent
           command:
@@ -25,7 +24,9 @@ spec:
             - -c
           args:
             - |
+              mkdir -p /app;
               mkdir -p /usr/share/nginx/html;
+              cp /wasm/app.wasm /app/app.wasm;
               cp /wasm/app.wasm /usr/share/nginx/html/app.wasm;
               nginx -g 'daemon off;';
           volumeMounts:
