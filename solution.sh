@@ -1,49 +1,46 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-ARGO_NS="argocd"
-APP_NS="bleater"
-APP_NAME="bleater-frontend"
-
-echo "Enabling Git LFS in ArgoCD repo-server..."
-
-# Idempotent env injection (avoids duplicate env var failures)
-kubectl set env deployment/argocd-repo-server \
-  -n ${ARGO_NS} \
-  ARGOCD_GIT_LFS_ENABLED=true
-
-echo "Waiting for repo-server rollout..."
-kubectl rollout status deployment/argocd-repo-server \
-  -n ${ARGO_NS} \
-  --timeout=300s
-
-
-echo "Triggering ArgoCD refresh..."
-kubectl annotate application ${APP_NAME} \
-  -n ${ARGO_NS} \
-  argocd.argoproj.io/refresh=hard \
-  --overwrite || true
-
-
-# ---- FIX: wait for ArgoCD controller to actually reconcile ----
 echo "Waiting for ArgoCD sync..."
 
-until [[ "$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
-  -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "")" == "Synced" ]]; do
-  sleep 5
+SYNC_TIMEOUT=300
+SYNC_START=$(date +%s)
+
+while true; do
+  STATUS=$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
+    -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "")
+
+  if [[ "$STATUS" == "Synced" ]]; then
+    echo "Application synced."
+    break
+  fi
+
+  NOW=$(date +%s)
+  if (( NOW - SYNC_START > SYNC_TIMEOUT )); then
+    echo "ERROR: ArgoCD sync timeout"
+    exit 1
+  fi
+
+  sleep 3
 done
+
 
 echo "Waiting for ArgoCD health..."
 
-until [[ "$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
-  -o jsonpath='{.status.health.status}' 2>/dev/null || echo "")" == "Healthy" ]]; do
-  sleep 5
+HEALTH_TIMEOUT=300
+HEALTH_START=$(date +%s)
+
+while true; do
+  HEALTH=$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
+    -o jsonpath='{.status.health.status}' 2>/dev/null || echo "")
+
+  if [[ "$HEALTH" == "Healthy" ]]; then
+    echo "Application healthy."
+    break
+  fi
+
+  NOW=$(date +%s)
+  if (( NOW - HEALTH_START > HEALTH_TIMEOUT )); then
+    echo "ERROR: ArgoCD health timeout"
+    exit 1
+  fi
+
+  sleep 3
 done
-
-
-echo "Waiting for frontend recovery..."
-kubectl rollout status deployment/${APP_NAME} \
-  -n ${APP_NS} \
-  --timeout=300s
-
-echo "Fix complete."
