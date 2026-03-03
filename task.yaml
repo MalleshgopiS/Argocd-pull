@@ -4,17 +4,17 @@ difficulty: medium
 horizon: short
 
 description: |
-  The Bleater frontend is deployed via ArgoCD from a Git repository
-  that uses Git LFS for large binary artifacts.
+  A Git repository uses Git LFS to store a WASM binary artifact.
+  The Kubernetes deployment is currently serving the LFS pointer file
+  instead of the actual binary.
 
-  ArgoCD is currently syncing only LFS pointer files instead of actual binaries.
-  The frontend crashes due to invalid WASM content, while the API remains healthy.
+  The application fails because the pointer file was deployed
+  instead of the real LFS object.
 
-  Diagnose the issue and ensure that the deployed WASM file is a valid binary.
+  Fix the issue so that the deployed WASM file matches
+  the real Git LFS object stored in the repository.
 
 success_criteria:
-  - Frontend pod is running
-  - WASM file contains valid binary header
-  - WASM file is larger than 8 bytes
-  - Pointer file signature no longer exists
+  - Deployment becomes ready
+  - WASM file matches expected SHA256
   - HTTP endpoint returns 200
