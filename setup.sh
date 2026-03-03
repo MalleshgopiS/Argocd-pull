@@ -5,9 +5,21 @@ ARGO_NS="argocd"
 APP_NS="bleater"
 SECRET_NAME="repo-bleater-frontend"
 
-echo "[Setup] Recording original Deployment UID..."
-kubectl -n ${APP_NS} get deployment bleater-frontend \
-  -o jsonpath='{.metadata.uid}' > /tmp/original_uid
+echo "[Setup] Discovering frontend deployment dynamically..."
+
+# Find deployment created by ArgoCD in bleater namespace
+DEPLOYMENT_NAME=$(kubectl -n ${APP_NS} get deployments \
+  -o jsonpath='{.items[?(@.metadata.labels.app\.kubernetes\.io/instance=="bleater-frontend")].metadata.name}')
+
+if [ -z "$DEPLOYMENT_NAME" ]; then
+  echo "ERROR: Could not find frontend deployment"
+  exit 1
+fi
+
+echo "[Setup] Found deployment: $DEPLOYMENT_NAME"
+
+kubectl -n ${APP_NS} get deployment ${DEPLOYMENT_NAME} \
+  -o jsonpath='{.metadata.uid}' > /var/tmp/original_uid
 
 echo "[Setup] Creating repository secret WITHOUT LFS enabled..."
 
