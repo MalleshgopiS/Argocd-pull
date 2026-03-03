@@ -1,4 +1,4 @@
-FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops:latest
+FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops:1.0.0
 
 USER root
 
