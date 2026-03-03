@@ -1,177 +1,69 @@
-#!/usr/bin/env python3
-
-"""
-Grader — ArgoCD Git LFS Broken
-
-This grader validates that the ArgoCD Git LFS configuration issue
-has been correctly resolved by the agent.
-
-Validation Overview
--------------------
-The grader performs five independent checks against live Kubernetes
-cluster state:
-
-1. WASM Binary Validation
-   Ensures the deployed app.wasm file is NOT a Git LFS pointer file.
-
-2. Deployment Readiness
-   Confirms the frontend deployment becomes Ready.
-
-3. Deployment UID Preservation
-   Ensures the deployment resource was patched rather than deleted
-   and recreated by comparing the UID saved during setup.
-
-4. ArgoCD Git LFS Configuration
-   Verifies that Git LFS support is enabled in the argocd-repo-server
-   deployment via environment variable configuration.
-
-5. Service Endpoint Restoration
-   Confirms Kubernetes service endpoints are restored, meaning
-   traffic routing is functional again.
-
-Scoring
--------
-Final score = passed_checks / total_checks
-
-The grader relies entirely on live Kubernetes state and does not
-inspect solution steps, preventing shortcut-based solutions.
-"""
-
 import subprocess
-import json
-import time
-
-NS = "bleater"
-DEPLOY = "bleater-frontend"
-UID_FILE = "/grader/frontend-deploy-uid"
+import sys
 
 
-def run(cmd: str) -> str:
-    """
-    Execute a shell command and return stdout.
+def run(cmd):
+    return subprocess.check_output(cmd, shell=True, text=True).strip()
 
-    Any execution error returns an empty string instead of raising
-    an exception to keep grading deterministic.
-    """
+
+def fail(message):
+    print(f"FAIL: {message}")
+    sys.exit(1)
+
+
+def check_lfs_enabled():
+    output = run("kubectl -n argocd get secret repo-bleater-frontend -o yaml")
+    if 'enableLFS: "true"' not in output:
+        fail("Git LFS not enabled in repository secret")
+
+
+def check_git_lfs_installed():
     try:
-        return subprocess.check_output(
-            cmd, shell=True, text=True, stderr=subprocess.DEVNULL
-        ).strip()
-    except Exception:
-        return ""
+        run("kubectl -n argocd exec deploy/argocd-repo-server -- git lfs version")
+    except subprocess.CalledProcessError:
+        fail("git-lfs not available in repo-server container")
 
 
-def wait_ready():
-    """
-    Wait for the frontend deployment to report Ready replicas.
-
-    Polls Kubernetes for up to ~40 seconds to allow rollout and
-    reconciliation to complete.
-    """
-    for _ in range(20):
-        ready = run(
-            f"kubectl get deploy {DEPLOY} -n {NS} "
-            "-o jsonpath='{.status.readyReplicas}'"
-        )
-        if ready and ready != "0":
-            return True
-        time.sleep(2)
-    return False
+def get_frontend_pod():
+    pods = run("kubectl get pods -n bleater -o jsonpath='{.items[0].metadata.name}'")
+    if not pods:
+        fail("No frontend pod found")
+    return pods.strip("'")
 
 
-def get_running_pod():
-    """
-    Return the name of a running frontend pod.
-
-    Uses label selection and running phase filtering.
-    Returns empty string if no pod is available.
-    """
-    return run(
-        f"kubectl get pods -n {NS} "
-        "-l app=frontend "
-        "-o jsonpath='{.items[?(@.status.phase==\"Running\")].metadata.name}'"
-    )
+def check_pod_running():
+    output = run("kubectl get pods -n bleater --no-headers")
+    if "Running" not in output:
+        fail("Frontend pod is not running")
 
 
-# ------------------------------------------------------------
-# CHECK 1 — WASM not LFS pointer
-# ------------------------------------------------------------
-pod = get_running_pod()
+def check_wasm_binary():
+    pod = get_frontend_pod()
 
-if not pod:
-    check_binary = False
-else:
-    wasm = run(
-        f"kubectl exec -n {NS} {pod} -- "
-        "cat /app/app.wasm 2>/dev/null || true"
-    )
-    check_binary = "git-lfs.github.com/spec" not in wasm
+    # Check file size
+    size = run(f"kubectl exec -n bleater {pod} -- stat -c%s /app/app.wasm")
+    if int(size) < 1000000:
+        fail("WASM file too small (likely LFS pointer file)")
 
+    # Check magic header
+    header = run(f"kubectl exec -n bleater {pod} -- xxd -p -l 4 /app/app.wasm")
+    if header != "0061736d":
+        fail("Invalid WASM magic header")
 
-# ------------------------------------------------------------
-# CHECK 2 — Deployment Ready
-# ------------------------------------------------------------
-check_ready = wait_ready()
+    # Ensure pointer text not present
+    content_check = run(f"kubectl exec -n bleater {pod} -- head -n 1 /app/app.wasm || true")
+    if "git-lfs.github.com" in content_check:
+        fail("LFS pointer file still present")
 
 
-# ------------------------------------------------------------
-# CHECK 3 — UID preserved
-# ------------------------------------------------------------
-orig_uid = ""
-try:
-    with open(UID_FILE) as f:
-        orig_uid = f.read().strip()
-except Exception:
-    orig_uid = ""
+def main():
+    check_lfs_enabled()
+    check_git_lfs_installed()
+    check_pod_running()
+    check_wasm_binary()
 
-curr_uid = run(
-    f"kubectl get deploy {DEPLOY} -n {NS} "
-    "-o jsonpath='{.metadata.uid}'"
-)
-
-check_uid = orig_uid != "" and orig_uid == curr_uid
+    print("PASS: All validation checks successful")
 
 
-# ------------------------------------------------------------
-# CHECK 4 — LFS enabled EXACT value
-# ------------------------------------------------------------
-lfs_val = run(
-    "kubectl get deploy argocd-repo-server -n argocd "
-    "-o jsonpath='{.spec.template.spec.containers[0].env"
-    "[?(@.name==\"ARGOCD_GIT_LFS_ENABLED\")].value}'"
-)
-
-check_lfs = lfs_val == "true"
-
-
-# ------------------------------------------------------------
-# CHECK 5 — Service endpoints restored
-# ------------------------------------------------------------
-eps = run(
-    f"kubectl get endpoints {DEPLOY} -n {NS} "
-    "-o jsonpath='{.subsets}'"
-)
-
-check_eps = eps not in ("", "[]", "<no value>")
-
-
-# ------------------------------------------------------------
-# Final scoring
-# ------------------------------------------------------------
-checks = [
-    check_binary,
-    check_ready,
-    check_uid,
-    check_lfs,
-    check_eps,
-]
-
-score = sum(checks) / len(checks)
-
-result = {
-    "score": score,
-    "passed": sum(checks),
-    "total": len(checks),
-}
-
-print(json.dumps(result))
+if __name__ == "__main__":
+    main()

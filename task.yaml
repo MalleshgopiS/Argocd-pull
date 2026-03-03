@@ -1,49 +1,27 @@
-id: argocd-lfs-broken
-title: ArgoCD Pulling Git LFS Pointer Files Instead of Binary Content
+name: argocd-lfs-wasm-fix
+
+description: >
+  The Bleater frontend crashes after ArgoCD deployment because
+  Git LFS pointer files are deployed instead of the actual WASM binary.
+  The deployed app.wasm file contains a Git LFS pointer instead of a
+  valid WebAssembly binary.
+  Configure ArgoCD repo-server to correctly fetch Git LFS objects.
 
 category: CI/CD Pipeline
 difficulty: medium
 horizon: short
 
-description: |
-  The Bleater frontend application is deployed using ArgoCD.
-
-  Recently, deployments began failing after a repository migration
-  introduced Git Large File Storage (Git LFS) artifacts.
-
-  The frontend depends on a WebAssembly binary (app.wasm).
-  Instead of downloading the real binary, ArgoCD is pulling
-  Git LFS pointer files.
-
-  As a result:
-  - frontend pods crash during startup
-  - deployment never becomes Ready
-  - service endpoints remain empty
-
-  Investigation shows Git LFS support is not enabled in the
-  ArgoCD repo-server component.
-
-  You must repair the ArgoCD configuration so that real LFS
-  objects are fetched and the application recovers.
-
-objectives:
-  - Enable Git LFS support in ArgoCD repo-server
-  - Trigger ArgoCD reconciliation
-  - Restore frontend deployment health
-  - Preserve existing Deployment resource
-
 constraints:
-  - DO NOT delete or recreate deployments
-  - DO NOT manually modify files inside running containers
-  - Only patch existing Kubernetes resources
+  - Do NOT modify application source
+  - Do NOT rebuild frontend container image
+  - Do NOT manually copy files into pods
+  - Do NOT recreate the Deployment
+  - Fix must be applied at ArgoCD repo-server level
 
-success_criteria:
-  - WASM file no longer contains Git LFS pointer metadata
-  - Frontend Deployment becomes Ready
-  - Deployment UID remains unchanged
-  - Git LFS is enabled in ArgoCD repo-server
-  - Frontend Service has active endpoints
-
-setup_script: setup.sh
-solution_script: solution.sh
-grader_script: grader.py
+expected_outcome:
+  - Repository secret has enableLFS enabled
+  - Repo-server supports Git LFS
+  - Repo-server restarted successfully
+  - app.wasm is a valid binary (not pointer file)
+  - WASM magic header equals 00 61 73 6d
+  - Frontend pod is Running

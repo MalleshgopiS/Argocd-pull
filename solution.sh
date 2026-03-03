@@ -1,49 +1,25 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
 
-ARGO_NS="argocd"
-APP_NS="bleater"
-APP_NAME="bleater-frontend"
+NAMESPACE="argocd"
+REPO_SECRET="repo-bleater-frontend"
 
-echo "Enabling Git LFS in ArgoCD repo-server..."
+echo "[Solution] Enabling Git LFS for repository..."
 
-# Idempotent env injection (avoids duplicate env var failures)
-kubectl set env deployment/argocd-repo-server \
-  -n ${ARGO_NS} \
-  ARGOCD_GIT_LFS_ENABLED=true
+kubectl patch secret ${REPO_SECRET} -n ${NAMESPACE} \
+  --type merge \
+  -p '{"stringData":{"enableLFS":"true"}}'
 
-echo "Waiting for repo-server rollout..."
-kubectl rollout status deployment/argocd-repo-server \
-  -n ${ARGO_NS} \
-  --timeout=300s
+echo "[Solution] Verifying git-lfs is available in repo-server..."
 
+if ! kubectl -n ${NAMESPACE} exec deploy/argocd-repo-server -- git lfs version >/dev/null 2>&1; then
+  echo "ERROR: git-lfs is not installed in repo-server container"
+  exit 1
+fi
 
-echo "Triggering ArgoCD refresh..."
-kubectl annotate application ${APP_NAME} \
-  -n ${ARGO_NS} \
-  argocd.argoproj.io/refresh=hard \
-  --overwrite || true
+echo "[Solution] Restarting repo-server..."
 
+kubectl -n ${NAMESPACE} rollout restart deployment argocd-repo-server
+kubectl -n ${NAMESPACE} rollout status deployment argocd-repo-server
 
-# ---- FIX: wait for ArgoCD controller to actually reconcile ----
-echo "Waiting for ArgoCD sync..."
-
-until [[ "$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
-  -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "")" == "Synced" ]]; do
-  sleep 5
-done
-
-echo "Waiting for ArgoCD health..."
-
-until [[ "$(kubectl get application ${APP_NAME} -n ${ARGO_NS} \
-  -o jsonpath='{.status.health.status}' 2>/dev/null || echo "")" == "Healthy" ]]; do
-  sleep 5
-done
-
-
-echo "Waiting for frontend recovery..."
-kubectl rollout status deployment/${APP_NAME} \
-  -n ${APP_NS} \
-  --timeout=300s
-
-echo "Fix complete."
+echo "[Solution Complete]"
