@@ -2,11 +2,10 @@
 set -e
 
 ARGO_NS="argocd"
-APP_NS="bleater"
 APP_NAME="bleater-platform"
 SECRET_NAME="repo-bleater-platform"
 
-echo "[Solution] Enabling Git LFS on repository secret..."
+echo "[Solution] Enabling Git LFS..."
 
 kubectl -n ${ARGO_NS} patch secret ${SECRET_NAME} \
   --type merge \

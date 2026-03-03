@@ -6,26 +6,33 @@ APP_NS="bleater"
 APP_NAME="bleater-platform"
 SECRET_NAME="repo-bleater-platform"
 
-echo "[Setup] Extracting repository URL from ArgoCD Application..."
+echo "[Setup] Extracting repository URL..."
 
 REPO_URL=$(kubectl -n ${ARGO_NS} get application ${APP_NAME} \
   -o jsonpath='{.spec.source.repoURL}')
 
 if [ -z "$REPO_URL" ]; then
-  echo "ERROR: Could not extract repoURL from ArgoCD Application"
+  echo "ERROR: Could not extract repoURL"
   exit 1
 fi
 
 echo "[Setup] Repo URL: $REPO_URL"
 
-echo "[Setup] Locating frontend deployment by WASM presence..."
+echo "[Setup] Locating frontend deployment by checking /app/app.wasm..."
 
 DEPLOYMENT_NAME=""
 
 for d in $(kubectl -n ${APP_NS} get deployments -o jsonpath='{.items[*].metadata.name}'); do
-    POD=$(kubectl -n ${APP_NS} get pods \
-        --selector=app=${d} \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+    SELECTOR=$(kubectl -n ${APP_NS} get deployment $d \
+      -o jsonpath='{range $k,$v := .spec.selector.matchLabels}{$k}={$v},{end}' | sed 's/,$//')
+
+    if [ -z "$SELECTOR" ]; then
+        continue
+    fi
+
+    POD=$(kubectl -n ${APP_NS} get pods -l "$SELECTOR" \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
     if [ -n "$POD" ]; then
         if kubectl -n ${APP_NS} exec $POD -- test -f /app/app.wasm 2>/dev/null; then
@@ -42,11 +49,11 @@ fi
 
 echo "[Setup] Found frontend deployment: $DEPLOYMENT_NAME"
 
-# Save original Deployment UID
+# Store original UID
 kubectl -n ${APP_NS} get deployment ${DEPLOYMENT_NAME} \
   -o jsonpath='{.metadata.uid}' > /var/tmp/original_uid
 
-# Save original repo-server resourceVersion
+# Store repo-server resourceVersion
 kubectl -n ${ARGO_NS} get deployment argocd-repo-server \
   -o jsonpath='{.metadata.resourceVersion}' > /var/tmp/repo_server_rv
 

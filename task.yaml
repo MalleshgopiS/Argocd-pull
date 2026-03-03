@@ -4,14 +4,13 @@ difficulty: medium
 horizon: short
 
 description: |
-  The Bleater frontend crashes because ArgoCD repo-server is cloning
-  a Git repository that contains a WebAssembly file tracked with Git LFS.
-  Instead of downloading the actual binary, ArgoCD retrieves a pointer file.
+  The Bleater frontend crashes because ArgoCD repo-server retrieves
+  a Git LFS pointer file instead of the actual WebAssembly binary.
 
-  The ArgoCD Application managing Bleater is:
+  ArgoCD Application:
     bleater-platform
 
-  The repository secret must be updated to enable Git LFS:
+  The repository secret must enable Git LFS:
     enableLFS: "true"
 
 constraints:
@@ -24,6 +23,6 @@ expected_outcome:
   - Repository secret enables Git LFS
   - repo-server restarts successfully
   - Deployment UID remains unchanged
-  - WASM file is valid binary
+  - WASM file size exceeds 500KB
   - WASM header equals 00 61 73 6d
   - Frontend pods reach Running state
