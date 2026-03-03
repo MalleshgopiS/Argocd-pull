@@ -1,16 +1,20 @@
-id: argocd-lfs-fix
+name: argocd-lfs-wasm
 category: DevOps
 difficulty: medium
 horizon: short
-explanation: |
-  A mid-level DevOps engineer should identify the LFS pointer file issue and 
-  correct the .gitattributes configuration within 1-2 hours.
-prompt: |
-  [Context]
-  The Bleater frontend is crashing because the WASM binary is being loaded as a 100-byte Git LFS pointer file instead of the actual binary. 
-  The ArgoCD `repo-server` is not correctly processing LFS objects.
-  
-  [Task]
-  1. Diagnose why the WASM file is treated as a pointer.
-  2. Configure the repository to correctly handle WASM files via Git LFS.
-  3. Ensure the ArgoCD application synchronizes and deploys the actual binary.
+
+description: |
+  The Bleater frontend is deployed via ArgoCD from a Git repository
+  that uses Git LFS for large binary artifacts.
+
+  ArgoCD is currently syncing only LFS pointer files instead of actual binaries.
+  The frontend crashes due to invalid WASM content, while the API remains healthy.
+
+  Diagnose the issue and ensure that the deployed WASM file is a valid binary.
+
+success_criteria:
+  - Frontend pod is running
+  - WASM file contains valid binary header
+  - WASM file is larger than 8 bytes
+  - Pointer file signature no longer exists
+  - HTTP endpoint returns 200

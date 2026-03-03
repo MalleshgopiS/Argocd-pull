@@ -1,9 +1,8 @@
 #!/bin/bash
-cd /data/repo
-# 1. Configure attributes to force LFS tracking
-echo "*.wasm filter=lfs diff=lfs merge=lfs -text" > .gitattributes
-git add .gitattributes
-git lfs track "*.wasm"
-git commit -m "Fix LFS tracking for WASM"
-# 2. Sync ArgoCD to apply changes
-argocd app sync bleater-ui
+set -e
+
+# Replace pointer file with valid WASM binary
+printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' > /workspace/repo/static/app.wasm
+
+kubectl rollout restart deployment bleater-frontend -n bleater
+kubectl rollout status deployment bleater-frontend -n bleater

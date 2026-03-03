@@ -1,16 +1,53 @@
 #!/bin/bash
-supervisord -c /etc/supervisor/supervisord.conf &
-until kubectl get pods -n kube-system &> /dev/null; do sleep 2; done
+set -e
 
-# Setup the broken repository state
-mkdir -p /data/repo
-cd /data/repo && git init
-echo "pointer-data-not-binary" > app.wasm
-git add app.wasm && git commit -m "Initial commit"
+kubectl create namespace bleater || true
 
-# Trust the local repo
-argocd repo add file:///data/repo --insecure
+mkdir -p /workspace/repo/static
 
-# Deploy the ArgoCD application
-kubectl apply -f /data/argo-app.yaml
-argocd app sync bleater-ui --force
+# Broken LFS pointer file
+cat <<EOF > /workspace/repo/static/app.wasm
+version https://git-lfs.github.com/spec/v1
+oid sha256:deadbeef123456789
+size 123456
+EOF
+
+cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bleater-frontend
+  namespace: bleater
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bleater-frontend
+  template:
+    metadata:
+      labels:
+        app: bleater-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: nginx:alpine
+        volumeMounts:
+        - name: static
+          mountPath: /usr/share/nginx/html/static
+      volumes:
+      - name: static
+        hostPath:
+          path: /workspace/repo/static
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bleater-frontend
+  namespace: bleater
+spec:
+  selector:
+    app: bleater-frontend
+  ports:
+  - port: 80
+    targetPort: 80
+EOF
