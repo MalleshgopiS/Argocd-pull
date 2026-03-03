@@ -3,28 +3,23 @@ set -e
 
 ARGO_NS="argocd"
 APP_NS="bleater"
-SECRET_NAME="repo-bleater-frontend"
-APP_NAME="bleater-frontend"
+APP_NAME="bleater-platform"
+SECRET_NAME="repo-bleater-platform"
 
-echo "[Solution] Enabling Git LFS in repository secret..."
+echo "[Solution] Enabling Git LFS on repository secret..."
 
-kubectl patch secret ${SECRET_NAME} -n ${ARGO_NS} \
+kubectl -n ${ARGO_NS} patch secret ${SECRET_NAME} \
   --type merge \
   -p '{"stringData":{"enableLFS":"true"}}'
-
-echo "[Solution] Verifying git-lfs exists..."
-
-kubectl -n ${ARGO_NS} exec deploy/argocd-repo-server -- git lfs version >/dev/null
 
 echo "[Solution] Restarting repo-server..."
 
 kubectl -n ${ARGO_NS} rollout restart deployment argocd-repo-server
 kubectl -n ${ARGO_NS} rollout status deployment argocd-repo-server
 
-echo "[Solution] Forcing ArgoCD application refresh..."
+echo "[Solution] Forcing ArgoCD refresh..."
 
-kubectl -n ${ARGO_NS} patch application ${APP_NAME} \
-  --type merge \
-  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+kubectl -n ${ARGO_NS} annotate application ${APP_NAME} \
+  argocd.argoproj.io/refresh=hard --overwrite
 
-echo "[Solution Completed]"
+echo "[Solution Complete]"

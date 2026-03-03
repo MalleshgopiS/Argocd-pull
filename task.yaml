@@ -1,39 +1,29 @@
 name: argocd-lfs-wasm-fix
-
-description: >
-  The Bleater frontend application in namespace `bleater` crashes after
-  being deployed via ArgoCD because the WebAssembly file (app.wasm)
-  is stored using Git LFS but ArgoCD repo-server is not configured
-  to fetch LFS objects.
-
-  The deployed container contains a Git LFS pointer file instead of
-  the actual WASM binary. The application fails with:
-  "invalid magic number in wasm binary".
-
-  Your task is to configure ArgoCD repo-server so that Git LFS
-  objects are properly fetched.
-
-environment:
-  argocd_namespace: argocd
-  application_namespace: bleater
-  repository_secret_name: repo-bleater-frontend
-  wasm_path: /app/app.wasm
-
 category: CI/CD Pipeline
 difficulty: medium
 horizon: short
 
+description: |
+  The Bleater frontend crashes because ArgoCD repo-server is cloning
+  a Git repository that contains a WebAssembly file tracked with Git LFS.
+  Instead of downloading the actual binary, ArgoCD retrieves a pointer file.
+
+  The ArgoCD Application managing Bleater is:
+    bleater-platform
+
+  The repository secret must be updated to enable Git LFS:
+    enableLFS: "true"
+
 constraints:
   - Do NOT modify application source
   - Do NOT rebuild container image
-  - Do NOT manually copy files into pods
   - Do NOT delete or recreate the Deployment
   - Fix must be applied at ArgoCD repo-server level
 
 expected_outcome:
   - Repository secret enables Git LFS
-  - Repo-server restarts successfully
+  - repo-server restarts successfully
   - Deployment UID remains unchanged
-  - WASM file is a valid binary
+  - WASM file is valid binary
   - WASM header equals 00 61 73 6d
-  - Frontend pod reaches Running state
+  - Frontend pods reach Running state
