@@ -3,8 +3,12 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 USER root
 
 RUN apt-get update && \
-    apt-get install -y git git-lfs curl jq && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y \
+        git=1:2.34.* \
+        git-lfs=3.* \
+        curl=7.* \
+        jq=1.* \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN git lfs install
 

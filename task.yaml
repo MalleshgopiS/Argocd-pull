@@ -1,20 +1,24 @@
-name: argocd-lfs-wasm
+name: git-lfs-wasm-fix
 category: DevOps
 difficulty: medium
 horizon: short
 
 description: |
-  A Git repository uses Git LFS to store a WASM binary artifact.
-  The Kubernetes deployment is currently serving the LFS pointer file
-  instead of the actual binary.
+  A Kubernetes deployment serves files directly from a Git repository
+  mounted at /workspace/repo.
 
-  The application fails because the pointer file was deployed
-  instead of the real LFS object.
+  The repository tracks app.wasm using Git LFS.
 
-  Fix the issue so that the deployed WASM file matches
-  the real Git LFS object stored in the repository.
+  Currently, only the Git LFS pointer file is present in the mounted
+  directory, causing the application to fail.
+
+  The deployment named "bleater-frontend" in namespace "bleater"
+  mounts /workspace/repo to /usr/share/nginx/html inside the pod.
+
+  Fix the repository state so that the real LFS object replaces the
+  pointer file, and ensure the deployment serves the correct binary.
 
 success_criteria:
-  - Deployment becomes ready
-  - WASM file matches expected SHA256
+  - Deployment becomes Ready
+  - Deployed app.wasm matches the real Git LFS object
   - HTTP endpoint returns 200
