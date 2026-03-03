@@ -2,11 +2,10 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 
 USER root
 
-# Install minimal required tools
+# Install only required binary tools
 # xxd is required for WASM header validation
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        jq=1.6-2.1ubuntu3 \
         xxd \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,5 +20,5 @@ COPY grader.py /grader/grader.py
 # Ensure executables
 RUN chmod +x /setup.sh /solution.sh
 
-# Default entrypoint runs setup
+# Default entrypoint
 CMD ["/bin/bash", "/setup.sh"]
