@@ -3,22 +3,20 @@ import sys
 import time
 import json
 
-
 ARGO_NS = "argocd"
 APP_NS = "bleater"
 SECRET_NAME = "repo-bleater-platform"
 APP_NAME = "bleater-platform"
 
-WASM_PATH = "/app/app.wasm"
-WASM_MIN_SIZE = 500000  # 500KB threshold to distinguish LFS pointer
-WASM_MAGIC = "0061736d"  # Standard WebAssembly magic header
+# Correct Nebula frontend WASM location
+WASM_PATH = "/usr/share/nginx/html/app.wasm"
+
+WASM_MIN_SIZE = 500000  # 500KB threshold
+WASM_MAGIC = "0061736d"  # WebAssembly magic header
 
 
 def run(cmd: str) -> str:
-    """
-    Execute a shell command and return stdout.
-    Fail immediately if command fails.
-    """
+    """Execute shell command and return stdout."""
     try:
         return subprocess.check_output(cmd, shell=True, text=True).strip()
     except subprocess.CalledProcessError as e:
@@ -26,66 +24,63 @@ def run(cmd: str) -> str:
 
 
 def fail(message: str):
-    """
-    Print failure message and exit grading.
-    """
+    """Fail grading immediately."""
     print(f"FAIL: {message}")
     sys.exit(1)
 
 
 def get_frontend_deployment():
     """
-    Dynamically discover the frontend deployment by:
-    - Iterating through deployments in bleater namespace
-    - Constructing selector from matchLabels using jq-safe JSON parsing
-    - Checking for existence of /app/app.wasm in one of its pods
+    Determine frontend deployment using stable Nebula label:
+    app.kubernetes.io/name=bleater-frontend
     """
-
-    deployments_json = run(
-        f"kubectl -n {APP_NS} get deployments -o json"
+    deployment = run(
+        f"kubectl -n {APP_NS} get deployment "
+        f"-l app.kubernetes.io/name=bleater-frontend "
+        f"-o json | jq -r '.items[0].metadata.name'"
     )
 
-    deployments = json.loads(deployments_json)["items"]
+    if not deployment or deployment == "null":
+        fail("Could not determine frontend deployment")
 
-    for d in deployments:
-        name = d["metadata"]["name"]
-        labels = d["spec"]["selector"]["matchLabels"]
+    return deployment
 
-        if not labels:
-            continue
 
-        selector = ",".join([f"{k}={v}" for k, v in labels.items()])
+def get_frontend_selector():
+    """Build label selector from deployment matchLabels."""
+    deployment = get_frontend_deployment()
 
-        pods_json = run(
-            f"kubectl -n {APP_NS} get pods -l {selector} -o json"
-        )
+    deployment_json = run(
+        f"kubectl -n {APP_NS} get deployment {deployment} -o json"
+    )
 
-        pods = json.loads(pods_json)["items"]
+    labels = json.loads(deployment_json)["spec"]["selector"]["matchLabels"]
 
-        if not pods:
-            continue
+    return ",".join([f"{k}={v}" for k, v in labels.items()])
 
-        pod_name = pods[0]["metadata"]["name"]
 
-        # Check if WASM file exists
-        exists = subprocess.call(
-            f"kubectl -n {APP_NS} exec {pod_name} -- test -f {WASM_PATH}",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+def get_frontend_pod():
+    """Return first frontend pod."""
+    selector = get_frontend_selector()
 
-        if exists == 0:
-            return name
+    pods_json = run(
+        f"kubectl -n {APP_NS} get pods -l {selector} -o json"
+    )
 
-    fail("Could not determine frontend deployment")
+    pods = json.loads(pods_json)["items"]
 
+    if not pods:
+        fail("No frontend pods found")
+
+    return pods[0]["metadata"]["name"]
+
+
+# ---------------------------------------------------------
+# Checks
+# ---------------------------------------------------------
 
 def check_secret_enable_lfs():
-    """
-    Verify repository secret contains enableLFS=true.
-    """
-
+    """Verify repository secret contains enableLFS=true."""
     secret_json = run(
         f"kubectl -n {ARGO_NS} get secret {SECRET_NAME} -o json"
     )
@@ -107,10 +102,9 @@ def check_secret_enable_lfs():
 
 def check_repo_server_restarted():
     """
-    Ensure repo-server resourceVersion changed
+    Verify repo-server deployment resourceVersion changed,
     indicating rollout restart occurred.
     """
-
     original = open("/var/tmp/repo_server_rv").read().strip()
 
     current_json = run(
@@ -125,10 +119,9 @@ def check_repo_server_restarted():
 
 def check_deployment_uid_preserved():
     """
-    Ensure frontend Deployment UID did not change.
-    Prevents delete/recreate shortcuts.
+    Ensure frontend Deployment UID has not changed.
+    Prevents delete/recreate shortcut.
     """
-
     deployment = get_frontend_deployment()
 
     original = open("/var/tmp/original_uid").read().strip()
@@ -148,15 +141,7 @@ def wait_for_frontend_pods(timeout=180):
     Wait until all frontend pods are Running.
     Poll every 5 seconds up to timeout.
     """
-
-    deployment = get_frontend_deployment()
-
-    deployment_json = run(
-        f"kubectl -n {APP_NS} get deployment {deployment} -o json"
-    )
-
-    labels = json.loads(deployment_json)["spec"]["selector"]["matchLabels"]
-    selector = ",".join([f"{k}={v}" for k, v in labels.items()])
+    selector = get_frontend_selector()
 
     start = time.time()
 
@@ -186,38 +171,28 @@ def check_wasm_binary():
     """
     Validate WASM binary inside frontend pod:
     - File size must exceed WASM_MIN_SIZE
-    - First 4 bytes must equal WASM_MAGIC
+    - First 4 bytes must match WASM_MAGIC
     """
-
-    deployment = get_frontend_deployment()
-
-    deployment_json = run(
-        f"kubectl -n {APP_NS} get deployment {deployment} -o json"
-    )
-
-    labels = json.loads(deployment_json)["spec"]["selector"]["matchLabels"]
-    selector = ",".join([f"{k}={v}" for k, v in labels.items()])
-
-    pods_json = run(
-        f"kubectl -n {APP_NS} get pods -l {selector} -o json"
-    )
-
-    pod_name = json.loads(pods_json)["items"][0]["metadata"]["name"]
+    pod = get_frontend_pod()
 
     size = int(run(
-        f"kubectl -n {APP_NS} exec {pod_name} -- stat -c%s {WASM_PATH}"
+        f"kubectl -n {APP_NS} exec {pod} -- stat -c%s {WASM_PATH}"
     ))
 
     if size < WASM_MIN_SIZE:
         fail("WASM file size indicates LFS pointer instead of binary")
 
     header = run(
-        f"kubectl -n {APP_NS} exec {pod_name} -- xxd -p -l 4 {WASM_PATH}"
+        f"kubectl -n {APP_NS} exec {pod} -- xxd -p -l 4 {WASM_PATH}"
     )
 
     if header != WASM_MAGIC:
         fail("Invalid WASM magic header")
 
+
+# ---------------------------------------------------------
+# Main
+# ---------------------------------------------------------
 
 def main():
     check_secret_enable_lfs()

@@ -17,33 +17,13 @@ fi
 
 echo "[Setup] Repo URL: $REPO_URL"
 
-echo "[Setup] Locating frontend deployment by checking /app/app.wasm..."
+echo "[Setup] Locating frontend deployment..."
 
-DEPLOYMENT_NAME=""
+DEPLOYMENT_NAME=$(kubectl -n ${APP_NS} get deployments -l app.kubernetes.io/name=bleater-frontend -o json | jq -r '.items[0].metadata.name')
 
-for d in $(kubectl -n ${APP_NS} get deployments -o json | jq -r '.items[].metadata.name'); do
-
-    SELECTOR=$(kubectl -n ${APP_NS} get deployment $d -o json \
-      | jq -r '.spec.selector.matchLabels | to_entries | map("\(.key)=\(.value)") | join(",")')
-
-    if [ -z "$SELECTOR" ]; then
-        continue
-    fi
-
-    POD=$(kubectl -n ${APP_NS} get pods -l "$SELECTOR" -o json \
-        | jq -r '.items[0].metadata.name // empty')
-
-    if [ -n "$POD" ]; then
-        if kubectl -n ${APP_NS} exec $POD -- test -f /app/app.wasm 2>/dev/null; then
-            DEPLOYMENT_NAME=$d
-            break
-        fi
-    fi
-done
-
-if [ -z "$DEPLOYMENT_NAME" ]; then
-    echo "ERROR: Could not locate frontend deployment"
-    exit 1
+if [ -z "$DEPLOYMENT_NAME" ] || [ "$DEPLOYMENT_NAME" = "null" ]; then
+  echo "ERROR: Could not locate frontend deployment"
+  exit 1
 fi
 
 echo "[Setup] Found frontend deployment: $DEPLOYMENT_NAME"
@@ -71,6 +51,8 @@ stringData:
   url: ${REPO_URL}
   type: git
 EOF
+
+echo "[Setup] Restarting repo-server..."
 
 kubectl -n ${ARGO_NS} rollout restart deployment argocd-repo-server
 kubectl -n ${ARGO_NS} rollout status deployment argocd-repo-server
