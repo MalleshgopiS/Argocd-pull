@@ -1,17 +1,22 @@
 #!/bin/bash
 set -e
 
-NAMESPACE="argocd"
-REPO_SECRET="repo-bleater-frontend"
+ARGO_NS="argocd"
+APP_NS="bleater"
+SECRET_NAME="repo-bleater-frontend"
 
-echo "[Setup] Creating repository secret WITHOUT Git LFS enabled..."
+echo "[Setup] Recording original Deployment UID..."
+kubectl -n ${APP_NS} get deployment bleater-frontend \
+  -o jsonpath='{.metadata.uid}' > /tmp/original_uid
+
+echo "[Setup] Creating repository secret WITHOUT LFS enabled..."
 
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
-  name: ${REPO_SECRET}
-  namespace: ${NAMESPACE}
+  name: ${SECRET_NAME}
+  namespace: ${ARGO_NS}
   labels:
     argocd.argoproj.io/secret-type: repository
 type: Opaque
@@ -20,10 +25,7 @@ stringData:
   type: git
 EOF
 
-echo "[Setup] Restarting repo-server to ensure broken state..."
-
-kubectl -n ${NAMESPACE} rollout restart deployment argocd-repo-server
-kubectl -n ${NAMESPACE} rollout status deployment argocd-repo-server
+kubectl -n ${ARGO_NS} rollout restart deployment argocd-repo-server
+kubectl -n ${ARGO_NS} rollout status deployment argocd-repo-server
 
 echo "[Setup Complete]"
-echo "Frontend will crash because Git LFS objects are not fetched."

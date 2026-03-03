@@ -1,66 +1,39 @@
-<<<<<<< HEAD
 name: argocd-lfs-wasm-fix
 
 description: >
-  The Bleater frontend crashes after ArgoCD deployment because
-  Git LFS pointer files are deployed instead of the actual WASM binary.
-  The deployed app.wasm file contains a Git LFS pointer instead of a
-  valid WebAssembly binary.
-  Configure ArgoCD repo-server to correctly fetch Git LFS objects.
-=======
-name: ArgoCD Git LFS Broken
->>>>>>> 3255ed050bac464c09bb67a26b7c8a846bfd756c
+  The Bleater frontend application in namespace `bleater` crashes after
+  being deployed via ArgoCD because the WebAssembly file (app.wasm)
+  is stored using Git LFS but ArgoCD repo-server is not configured
+  to fetch LFS objects.
 
+  The deployed container contains a Git LFS pointer file instead of
+  the actual WASM binary. The application fails with:
+  "invalid magic number in wasm binary".
+
+  Your task is to configure ArgoCD repo-server so that Git LFS
+  objects are properly fetched.
+
+environment:
+  argocd_namespace: argocd
+  application_namespace: bleater
+  repository_secret_name: repo-bleater-frontend
+  wasm_path: /app/app.wasm
+
+category: CI/CD Pipeline
 difficulty: medium
+horizon: short
 
-<<<<<<< HEAD
 constraints:
   - Do NOT modify application source
-  - Do NOT rebuild frontend container image
+  - Do NOT rebuild container image
   - Do NOT manually copy files into pods
-  - Do NOT recreate the Deployment
+  - Do NOT delete or recreate the Deployment
   - Fix must be applied at ArgoCD repo-server level
 
 expected_outcome:
-  - Repository secret has enableLFS enabled
-  - Repo-server supports Git LFS
-  - Repo-server restarted successfully
-  - app.wasm is a valid binary (not pointer file)
-  - WASM magic header equals 00 61 73 6d
-  - Frontend pod is Running
-=======
-description: |
-  The ArgoCD repo-server is not properly handling Git LFS files.
-
-  The bleater-frontend application loads a WebAssembly (WASM)
-  binary stored using Git LFS. Because Git LFS support is disabled
-  in ArgoCD, the deployment fetches a Git LFS pointer file instead
-  of the real WASM binary.
-
-  Your task is to fix the cluster configuration so that:
-
-    1. Git LFS is enabled in the ArgoCD repo-server.
-    2. The bleater-frontend Deployment becomes Ready.
-    3. The WASM file inside the running pod is the real binary
-       (not a Git LFS pointer).
-    4. The Deployment UID is preserved
-       (do NOT delete and recreate it).
-    5. Service endpoints become healthy.
-
-  Constraints:
-
-    - Modify only Kubernetes/ArgoCD configuration.
-    - Do NOT delete and recreate deployments.
-    - Do NOT modify grader files.
-    - Solution must be idempotent.
-
-author: Apex
-
-tags:
-  - kubernetes
-  - argocd
-  - git-lfs
-  - devops
-
-estimated_time_minutes: 15
->>>>>>> 3255ed050bac464c09bb67a26b7c8a846bfd756c
+  - Repository secret enables Git LFS
+  - Repo-server restarts successfully
+  - Deployment UID remains unchanged
+  - WASM file is a valid binary
+  - WASM header equals 00 61 73 6d
+  - Frontend pod reaches Running state

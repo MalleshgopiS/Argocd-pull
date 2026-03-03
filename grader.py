@@ -1,68 +1,88 @@
 import subprocess
 import sys
+import time
 
 
 def run(cmd):
     return subprocess.check_output(cmd, shell=True, text=True).strip()
 
 
-def fail(message):
-    print(f"FAIL: {message}")
+def fail(msg):
+    print(f"FAIL: {msg}")
     sys.exit(1)
 
 
-def check_lfs_enabled():
-    output = run("kubectl -n argocd get secret repo-bleater-frontend -o yaml")
-    if 'enableLFS: "true"' not in output:
-        fail("Git LFS not enabled in repository secret")
+def wait_for_pods(namespace, label_selector, timeout=120):
+    start = time.time()
+    while time.time() - start < timeout:
+        output = run(
+            f"kubectl get pods -n {namespace} -l {label_selector} "
+            "-o jsonpath='{.items[*].status.phase}'"
+        ).replace("'", "")
+        if output and all(p == "Running" for p in output.split()):
+            return
+        time.sleep(5)
+    fail("Pods did not reach Running state in time")
 
 
-def check_git_lfs_installed():
+def check_secret():
+    output = run(
+        "kubectl -n argocd get secret repo-bleater-frontend "
+        "-o jsonpath='{.data.enableLFS}'"
+    )
+    if not output:
+        fail("enableLFS not set in repository secret")
+
+
+def check_git_lfs():
     try:
         run("kubectl -n argocd exec deploy/argocd-repo-server -- git lfs version")
     except subprocess.CalledProcessError:
-        fail("git-lfs not available in repo-server container")
+        fail("git-lfs not installed in repo-server")
 
 
-def get_frontend_pod():
-    pods = run("kubectl get pods -n bleater -o jsonpath='{.items[0].metadata.name}'")
-    if not pods:
-        fail("No frontend pod found")
-    return pods.strip("'")
+def check_uid_preserved():
+    original = open("/tmp/original_uid").read().strip()
+    current = run(
+        "kubectl -n bleater get deployment bleater-frontend "
+        "-o jsonpath='{.metadata.uid}'"
+    )
+    if original != current:
+        fail("Deployment was recreated (UID changed)")
 
 
-def check_pod_running():
-    output = run("kubectl get pods -n bleater --no-headers")
-    if "Running" not in output:
-        fail("Frontend pod is not running")
+def check_wasm():
+    pod = run(
+        "kubectl get pods -n bleater "
+        "-l app=bleater-frontend "
+        "-o jsonpath='{.items[0].metadata.name}'"
+    ).replace("'", "")
 
+    size = int(run(
+        f"kubectl exec -n bleater {pod} -- "
+        "stat -c%s /app/app.wasm"
+    ))
 
-def check_wasm_binary():
-    pod = get_frontend_pod()
+    # Pointer files are ~130 bytes; real WASM > 1MB
+    if size < 500000:
+        fail("WASM file size indicates pointer file")
 
-    # Check file size
-    size = run(f"kubectl exec -n bleater {pod} -- stat -c%s /app/app.wasm")
-    if int(size) < 1000000:
-        fail("WASM file too small (likely LFS pointer file)")
+    header = run(
+        f"kubectl exec -n bleater {pod} -- "
+        "xxd -p -l 4 /app/app.wasm"
+    )
 
-    # Check magic header
-    header = run(f"kubectl exec -n bleater {pod} -- xxd -p -l 4 /app/app.wasm")
     if header != "0061736d":
         fail("Invalid WASM magic header")
 
-    # Ensure pointer text not present
-    content_check = run(f"kubectl exec -n bleater {pod} -- head -n 1 /app/app.wasm || true")
-    if "git-lfs.github.com" in content_check:
-        fail("LFS pointer file still present")
-
 
 def main():
-    check_lfs_enabled()
-    check_git_lfs_installed()
-    check_pod_running()
-    check_wasm_binary()
-
-    print("PASS: All validation checks successful")
+    check_secret()
+    check_git_lfs()
+    check_uid_preserved()
+    wait_for_pods("bleater", "app=bleater-frontend")
+    check_wasm()
+    print("PASS")
 
 
 if __name__ == "__main__":

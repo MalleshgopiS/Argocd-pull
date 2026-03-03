@@ -6,7 +6,7 @@ USER root
 # xxd is required for WASM header validation
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        jq=1.6* \
+        jq=1.6-2.1ubuntu3 \
         xxd \
     && rm -rf /var/lib/apt/lists/*
 
