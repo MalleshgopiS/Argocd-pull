@@ -8,21 +8,21 @@ cd /workspace/repo
 
 git init
 git lfs install
+
 git lfs track "*.wasm"
 
-# Create real WASM binary
-printf '\x00\x61\x73\x6d\x01\x00\x00\x00REALWASMCONTENT1234567890' > app.wasm
+# Create real wasm binary
+printf '\x00\x61\x73\x6dREALCONTENT1234567890' > app.wasm
 
 git add .gitattributes app.wasm
-git commit -m "Add real wasm"
+git commit -m "Add wasm"
 
-# Save SHA internally (not exposed to agent later)
+# Save expected SHA
 REAL_SHA=$(sha256sum app.wasm | awk '{print $1}')
 echo $REAL_SHA > /tmp/internal_expected_sha
 
-# Replace working tree with pointer version
-git show HEAD:app.wasm > pointer.tmp
-mv pointer.tmp app.wasm
+# Replace working tree with pointer file
+git lfs pointer --file=app.wasm > app.wasm
 
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
